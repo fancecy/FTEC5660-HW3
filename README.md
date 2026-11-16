@@ -170,14 +170,117 @@ for each public company. Grading uses a private set of about 20 unseen
 companies with the same tools and the same answer key rules, but different
 names and wording, and scores your 3 points only.
 
-## Homework 3 solution:
-> to students: this is your report, see the homework description.
+## Homework 3 solution
 
 ### My 3 points and rules
-> for each point: why you chose it, your PASS rule in one or two sentences, and the evidence it uses. Quote Fisher where it helps.
+
+I selected **4, 7 and 11** because Fisher's qualitative *scuttlebutt*
+method can be operationalized by interviewing informed third parties rather
+than uncritically repeating management's claims. For each point the rule is
+applied consistently across firms, regardless of company name.
+
+- **Point 4 — above-average sales organization:** PASS if a customer describes
+  genuinely consultative, effective selling that adds value beyond distributing
+  price lists or competing solely on price. Evidence: one `customer` interview
+  about `sales_team`; evidence of perfunctory, unhelpful selling means FAIL.
+- **Point 7 — outstanding labor and personnel relations:** PASS if a current
+  employee reports fair working conditions, strong morale and retention, and
+  no credible systemic personnel problem. Evidence: one `current_employee`
+  interview about `working_conditions`; material signs of poor treatment,
+  high turnover or distrust mean FAIL.
+- **Point 11 — a meaningful advantage over competitors:** PASS if a competitor
+  identifies a durable, difficult-to-imitate product, service or operating
+  advantage. Evidence: one `competitor` interview about `competitive_edge`;
+  commodity offerings and easily copied price-based competition mean FAIL.
+
+These qualitative thresholds are deliberately conservative: missing,
+ambiguous, or contradictory support cannot justify a confident PASS. The
+interviews come from knowledgeable roles specified in the assignment. Each
+company consumes **three of the ten permitted interviews**.
 
 ### Design
-> a visualization of your agent design and one paragraph describing it.
+
+```mermaid
+flowchart TD
+    A[Company tools supplied by runner] --> B[Fixed interview planner]
+    B --> C[Customer: sales_team]
+    B --> D[Employee: working_conditions]
+    B --> E[Competitor: competitive_edge]
+    C --> F[DeepSeek v4 flash / LangChain]
+    D --> F
+    E --> F
+    F --> G[JSON parsing and verdict validation]
+    G --> H[Point 4 / 7 / 11 and summary]
+    H --> I[Provided scoring runner: results.csv]
+```
+
+The agent separates deterministic evidence acquisition from model judgment.
+A fixed routing plan avoids irrelevant questions, and all company information
+is retrieved through the assignment's pre-built `interview` LangChain tool.
+The `ChatDeepSeek` model is instantiated once with `deepseek-v4-flash` and
+zero temperature. An explicit rubric guides its independent classification of
+three interview excerpts. The output is parsed and validated before being
+returned to the unchanged runner. Up to five companies are processed at once;
+per-company exceptions are isolated so the batch still writes `results.csv`.
+Neither the company's raw files nor public answer-key values are accessed by
+the student agent.
 
 ### Results
-> your point score on `public_test`, the companies where your verdicts disagree with the public answers, and why.
+
+The agent was run on the 20 public-test companies with the required
+`deepseek-v4-flash` model. The observed results were **54/60 correct point
+verdicts (90.0% raw accuracy; 92.9% balanced point accuracy)**. The balanced
+score is the assignment's evaluation metric and averages true-PASS and
+true-FAIL recall. The private-test score remains unknown.
+
+The six public-test disagreements, taken from `results.csv`, were:
+
+| Company | Point | Expected | Predicted |
+| --- | ---: | --- | --- |
+| `cobalt_holdings` | 11 | PASS | FAIL |
+| `elmstead_technologies` | 4 | PASS | FAIL |
+| `emberly_systems` | 11 | PASS | FAIL |
+| `hollins_group` | 11 | PASS | FAIL |
+| `ironbark_technologies` | 11 | PASS | FAIL |
+| `northwind_group` | 11 | PASS | FAIL |
+
+All six were **false negatives**: five on competitive advantage (point 11)
+and one on sales organization (point 4). Point 7 had no disagreements in
+this run. The concentration on point 11 suggests that my requirement for a
+"durable, difficult-to-imitate" advantage may be stricter than the answer
+key's criterion, so plausible favourable competitor testimony may be
+interpreted as insufficient. Similarly, the point-4 rule's emphasis on
+consultative selling may overlook another legitimate form of superior sales
+performance. These are **hypotheses about the rubric**, not verified facts
+about those firms: the mismatch log alone does not include the underlying
+interview statements. I have not adjusted rules by company name or copied
+public labels into the agent; that would not generalize to private tests.
+
+To reproduce the public evaluation with an API key configured locally:
+
+```bash
+python3 hw3.py --data-folder public_test
+```
+
+Model calls can vary between runs, so the figures above refer to the
+observed run rather than a guarantee of identical results.
+
+### Task 2 — Reflection: AI sycophancy and AI psychosis
+
+AI sycophancy is a model's tendency to agree with the user or reinforce a
+preferred conclusion rather than assess evidence independently. In finance,
+it can turn a research assistant into a confirmation-bias machine: if an
+investor believes a company is exceptional, a compliant model might label
+weak sales or poor personnel relations as favourable. This project mitigates
+that risk through a predetermined evidence plan, explicit PASS/FAIL criteria,
+and independent third-party accounts. Still, the rubric itself expresses
+human judgments, so tests on varied cases and manual review remain necessary.
+
+AI psychosis is a term used in public discussion for cases where prolonged
+human–chatbot interaction may reinforce delusional interpretations or unhealthy
+reliance. It is not a diagnosis made by this agent, nor evidence that chatbots
+alone cause a psychiatric condition. The relevant design lesson is to avoid
+escalating unsupported beliefs through repeated affirmation. An investing
+assistant must distinguish what was observed from what was inferred, admit
+uncertainty, and never present a model-generated narrative as verified fact.
+A human should retain responsibility for consequential investment decisions.

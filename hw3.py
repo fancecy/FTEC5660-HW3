@@ -57,7 +57,7 @@ def load_env_file(path: Path = Path(".env")) -> None:
 
 # Choose any 3 of the 15 points, e.g. CHOSEN_POINTS = [1, 7, 15]. Your agent
 # gives a PASS or FAIL verdict on these 3 points only, with your own rule for each.
-CHOSEN_POINTS: list[int] = []  ### YOUR CODE HERE
+CHOSEN_POINTS: list[int] = [4, 7, 11]  ### YOUR CODE HERE
 
 
 def build_agent() -> Any:
@@ -72,7 +72,10 @@ def build_agent() -> Any:
     you will probably create one tool-calling agent per company there.
     """
     ### YOUR CODE HERE
-    return None
+    from langchain_deepseek import ChatDeepSeek
+
+    # Instantiate once; only the model authorized by the assignment is used.
+    return ChatDeepSeek(model=MODEL_NAME, temperature=0, max_retries=2)
 
 
 async def analyze_companies(agent: Any, companies: dict[str, list[Any]]) -> dict[str, dict[str, Any]]:
@@ -109,8 +112,81 @@ async def analyze_companies(agent: Any, companies: dict[str, list[Any]]) -> dict
     You may analyse companies in parallel (e.g. ``asyncio.gather``).
     """
     ### YOUR CODE HERE
-    _ = agent
-    return {name: {"points": {}, "summary": ""} for name in companies}
+    import re
+    from langchain_core.messages import HumanMessage, SystemMessage
+
+    # A fixed interview plan avoids wasting the per-company interview budget.
+    # Each selected respondent is explicitly knowledgeable about the topic.
+    plan = (
+        (4, "customer", "sales_team", "sales effectiveness"),
+        (7, "current_employee", "working_conditions", "personnel relations"),
+        (11, "competitor", "competitive_edge", "competitive advantage"),
+    )
+    semaphore = asyncio.Semaphore(5)
+
+    async def one_company(name: str, tools: list[Any]) -> tuple[str, dict[str, Any]]:
+        evidence: dict[int, str] = {}
+        try:
+            for point, role, topic, _ in plan:
+                # All company facts enter exclusively through the supplied tools.
+                answer = await asyncio.to_thread(
+                    tools[3].invoke, {"role": role, "topic": topic}
+                )
+                evidence[point] = str(answer)
+
+            descriptions = "\n".join(
+                f"Point {point} ({label}): {evidence[point]}"
+                for point, _, _, label in plan
+            )
+            messages = [
+                SystemMessage(content=(
+                    "You are a skeptical financial analyst applying Philip Fisher's "
+                    "scuttlebutt method to fictional firms. Evaluate ONLY points 4, 7, "
+                    "and 11. Use exclusively the supplied interviews, not memory or "
+                    "assumptions. Point 4 PASS requires evidence of consultative, "
+                    "effective, above-average selling; mere activity or low prices "
+                    "are not enough. Point 7 PASS requires healthy morale, fair "
+                    "treatment and retention, without credible evidence of toxic "
+                    "conditions or high turnover. Point 11 PASS requires a durable "
+                    "differentiating advantage that competitors find hard to copy; "
+                    "generic claims or price discounting do not qualify. Negative "
+                    "evidence overrides unsubstantiated praise. Return ONLY a JSON "
+                    "object with keys '4', '7', '11' (each PASS or FAIL) and 'summary' "
+                    "(2-3 concise sentences, identifying evidence for each point). "
+                    "Do not invent facts."
+                )),
+                HumanMessage(content=f"Company folder: {name}\n{descriptions}"),
+            ]
+            async with semaphore:
+                response = await asyncio.to_thread(agent.invoke, messages)
+            content = str(response.content)
+            match = re.search(r"\{.*\}", content, re.DOTALL)
+            parsed = json.loads(match.group(0) if match else content)
+            verdicts = {}
+            for point in CHOSEN_POINTS:
+                value = str(parsed.get(str(point), "")).strip().upper()
+                if value not in VERDICTS:
+                    raise ValueError(f"Invalid verdict for point {point}: {value!r}")
+                verdicts[point] = value
+            summary = str(parsed.get("summary", "")).strip()
+            if not summary:
+                summary = "; ".join(
+                    f"Point {point}: {verdicts[point]} based on {evidence[point]}"
+                    for point in CHOSEN_POINTS
+                )
+            return name, {"points": verdicts, "summary": summary}
+        except Exception as exc:
+            # Never let a single failed model/tool call abort results.csv.
+            return name, {
+                "points": {point: "FAIL" for point in CHOSEN_POINTS},
+                "summary": f"Analysis could not be completed ({type(exc).__name__}); "
+                           "conservative FAIL verdicts require manual review.",
+            }
+
+    entries = await asyncio.gather(
+        *(one_company(name, tools) for name, tools in companies.items())
+    )
+    return dict(entries)
 
 
 # Everything below is provided runner/scoring code. No edits are needed.
